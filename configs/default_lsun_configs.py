@@ -48,6 +48,7 @@ def get_default_configs():
 
   # model
   config.model = model = ml_collections.ConfigDict()
+  model.sde_type = 'original'
   model.sigma_max = 378
   model.sigma_min = 0.01
   model.num_scales = 2000

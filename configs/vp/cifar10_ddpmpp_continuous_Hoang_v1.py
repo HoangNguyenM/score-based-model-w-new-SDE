@@ -14,18 +14,19 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Training NCSN++ on CIFAR-10."""
+"""Training NCSNv3 on CIFAR-10 with continuous sigmas."""
 
-from configs.default_cifar10_configs import get_default_configs
+### VP VERSION 1: Constant \beta ###
+
+from configs.default_cifar10_configs_Hoang_small import get_default_configs
 
 
 def get_config():
   config = get_default_configs()
   # training
   training = config.training
-  training.sde = 'subvpsde'
+  training.sde = 'vpsde'
   training.continuous = True
-  training.n_iters = 950001
   training.reduce_mean = True
 
   # sampling
@@ -40,28 +41,33 @@ def get_config():
 
   # model
   model = config.model
+
+  model.beta_min = 10
+  model.beta_max = 10
+
   model.name = 'ncsnpp'
-  model.fourier_scale = 16
   model.scale_by_sigma = False
   model.ema_rate = 0.9999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
-  model.nf = 128
+  #model.nf = 128
+  model.nf = 32
   model.ch_mult = (1, 2, 2, 2)
-  model.num_res_blocks = 8
+  model.num_res_blocks = 4
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
-  model.fir = True
+  model.fir = False
   model.fir_kernel = [1, 3, 3, 1]
   model.skip_rescale = True
   model.resblock_type = 'biggan'
   model.progressive = 'none'
-  model.progressive_input = 'residual'
+  model.progressive_input = 'none'
   model.progressive_combine = 'sum'
   model.attention_type = 'ddpm'
+  model.init_scale = 0.
   model.embedding_type = 'positional'
-  model.init_scale = 0.0
+  model.fourier_scale = 16
   model.conv_size = 3
 
   return config
