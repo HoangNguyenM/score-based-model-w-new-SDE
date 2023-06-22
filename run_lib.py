@@ -21,6 +21,9 @@ import io
 import os
 import time
 
+import sys
+import psutil
+
 import numpy as np
 import tensorflow as tf
 import tensorflow_gan as tfgan
@@ -43,7 +46,6 @@ from utils import save_checkpoint, restore_checkpoint
 
 FLAGS = flags.FLAGS
 
-
 def train(config, workdir):
   """Runs the training pipeline.
 
@@ -62,7 +64,16 @@ def train(config, workdir):
   writer = tensorboard.SummaryWriter(tb_dir)
 
   # Initialize model.
+  mem_usage = psutil.Process()
+  print(f"Before creating the model, memory usage is {mem_usage.memory_info().rss}")
+
+  print("Initialize model...")
   score_model = mutils.create_model(config)
+  print(f"The model size is {sys.getsizeof(score_model)}")
+
+  something = psutil.Process()
+  print(f"After creating the model, memory usage is {mem_usage.memory_info().rss}")
+
   ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
   optimizer = losses.get_optimizer(config, score_model.parameters())
   state = dict(optimizer=optimizer, model=score_model, ema=ema, step=0)
@@ -78,6 +89,7 @@ def train(config, workdir):
   initial_step = int(state['step'])
 
   # Build data iterators
+  print("Build data iterators...")
   train_ds, eval_ds, _ = datasets.get_dataset(config,
                                               uniform_dequantization=config.data.uniform_dequantization)
   train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
@@ -87,17 +99,21 @@ def train(config, workdir):
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Setup SDEs
+  print("Setup SDEs...")
   if config.training.sde.lower() == 'vpsde':
-    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales, 
+                        sde_type=config.model.sde_type)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'subvpsde':
     sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'vesde':
-    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales, 
+                        sde_type=config.model.sde_type)
     sampling_eps = 1e-5
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+  print(f"The SDE type is {config.model.sde_type}")
 
   # Build one-step training and evaluation functions
   optimize_fn = losses.optimization_manager(config)
@@ -183,6 +199,10 @@ def evaluate(config,
     eval_folder: The subfolder for storing evaluation results. Default to
       "eval".
   """
+  # Allow memory growth on the GPU
+  gpus = tf.config.list_physical_devices('GPU')
+  tf.config.experimental.set_memory_growth(device=gpus[0], enable=True)
+
   # Create directory to eval_folder
   eval_dir = os.path.join(workdir, eval_folder)
   tf.io.gfile.makedirs(eval_dir)
@@ -197,6 +217,9 @@ def evaluate(config,
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Initialize model
+  mem_usage = psutil.Process()
+  print(f"Before initializing model, memory usage is {mem_usage.memory_info().rss}")
+
   score_model = mutils.create_model(config)
   optimizer = losses.get_optimizer(config, score_model.parameters())
   ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
@@ -206,16 +229,19 @@ def evaluate(config,
 
   # Setup SDEs
   if config.training.sde.lower() == 'vpsde':
-    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+    sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales, 
+                        sde_type=config.model.sde_type)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'subvpsde':
     sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'vesde':
-    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+    sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales, 
+                        sde_type=config.model.sde_type)
     sampling_eps = 1e-5
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+  print(f"The SDE type is {config.model.sde_type}")
 
   # Create the one-step evaluation function when loss computation is enabled
   if config.eval.enable_loss:
@@ -331,6 +357,7 @@ def evaluate(config,
       num_sampling_rounds = config.eval.num_samples // config.eval.batch_size + 1
       for r in range(num_sampling_rounds):
         logging.info("sampling -- ckpt: %d, round: %d" % (ckpt, r))
+        print(f"The current memory usage is {mem_usage.memory_info().rss}")
 
         # Directory to save samples. Different for each host to avoid writing conflicts
         this_sample_dir = os.path.join(

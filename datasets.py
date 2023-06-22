@@ -19,7 +19,6 @@ import jax
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-
 def get_data_scaler(config):
   """Data normalizer. Assume data are always in [0, 1]."""
   if config.data.centered:
@@ -27,7 +26,6 @@ def get_data_scaler(config):
     return lambda x: x * 2. - 1.
   else:
     return lambda x: x
-
 
 def get_data_inverse_scaler(config):
   """Inverse data normalizer."""
@@ -147,6 +145,7 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
       f'Dataset {config.data.dataset} not yet supported.')
 
   # Customize preprocess functions for each dataset.
+  print("Customize preprocess functions for each dataset...")
   if config.data.dataset in ['FFHQ', 'CelebAHQ']:
     def preprocess_fn(d):
       sample = tf.io.parse_single_example(d, features={
@@ -174,17 +173,23 @@ def get_dataset(config, uniform_dequantization=False, evaluation=False):
       return dict(image=img, label=d.get('label', None))
 
   def create_dataset(dataset_builder, split):
+
+    print("Start create_dataset()...")
     dataset_options = tf.data.Options()
     dataset_options.experimental_optimization.map_parallelization = True
     dataset_options.experimental_threading.private_threadpool_size = 48
     dataset_options.experimental_threading.max_intra_op_parallelism = 1
     read_config = tfds.ReadConfig(options=dataset_options)
+
+    print("Start download_and_prepare()...")
     if isinstance(dataset_builder, tfds.core.DatasetBuilder):
       dataset_builder.download_and_prepare()
+      print("Finish download_and_prepare()...")
       ds = dataset_builder.as_dataset(
         split=split, shuffle_files=True, read_config=read_config)
     else:
       ds = dataset_builder.with_options(dataset_options)
+    print("Finish as_dataset()...")
     ds = ds.repeat(count=num_epochs)
     ds = ds.shuffle(shuffle_buffer_size)
     ds = ds.map(preprocess_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
