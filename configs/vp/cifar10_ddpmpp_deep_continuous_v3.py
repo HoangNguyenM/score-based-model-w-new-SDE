@@ -1,6 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,10 +10,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Training NCSNv3 on CIFAR-10 with continuous sigmas."""
+"""Training DDPM++ on CIFAR-10 with continuous betas."""
 
-from configs.default_cifar10_configs_Hoang_small import get_default_configs
+### VP VERSION 3: beta = ab^t ###
+
+from configs.default_cifar10_configs_deep import get_default_configs
 
 
 def get_config():
@@ -26,7 +24,6 @@ def get_config():
   training.sde = 'vpsde'
   training.continuous = True
   training.reduce_mean = True
-  #training.n_iters = 950001
 
   # sampling
   sampling = config.sampling
@@ -40,12 +37,15 @@ def get_config():
 
   # model
   model = config.model
+  model.sde_type = 'v3'
+  model.beta_min = 0.1
+  model.beta_max = 30.
+
   model.name = 'ncsnpp'
   model.scale_by_sigma = False
   model.ema_rate = 0.9999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
-  #model.nf = 128
   model.nf = 32
   model.ch_mult = (1, 2, 2, 2)
   model.num_res_blocks = 8

@@ -110,19 +110,47 @@ class SDE(abc.ABC):
 
 
 class VPSDE(SDE):
-  def __init__(self, beta_min=0.1, beta_max=20, N=1000, sde_type="original"):
+  def __init__(self, beta_min=0.1, beta_max=20, N=1000, sde_type="original", sde_rho=10):
     """Construct a Variance Preserving SDE.
 
     Args:
       beta_min: value of beta(0)
       beta_max: value of beta(1)
       N: number of discretization steps
+
+      sde type: "original" by default
+      v1: beta = constant
+      v2: beta = (b+at)^rho
+      v3: beta = ab^t
     """
     super().__init__(N)
+    self.sde_type = sde_type
+    # rho is for v2 sde
+    self.rho = sde_rho
+
     self.beta_0 = beta_min
     self.beta_1 = beta_max
     self.N = N
-    self.discrete_betas = torch.linspace(beta_min / N, beta_max / N, N)
+
+    if self.sde_type == 'original':
+      self.discrete_betas = torch.linspace(beta_min / N, beta_max / N, N)
+    elif self.sde_type == 'v1':
+      self.beta_0 = (beta_min+beta_max)/2
+      self.beta_1 = (beta_min+beta_max)/2
+      self.discrete_betas = torch.linspace(self.beta_0 / N, self.beta_1 / N, N)
+    elif self.sde_type == 'v2':
+      self.a = beta_max**(1/self.rho) - beta_min**(1/self.rho)
+      self.b = beta_min**(1/self.rho)
+      discrete_base = torch.linspace(self.b, self.a+self.b, N)
+      self.discrete_betas = torch.pow(discrete_base, self.rho)
+      self.discrete_betas = self.discrete_betas / N
+    elif self.sde_type == 'v3':
+      self.b = beta_max/beta_min
+      self.discrete_betas = torch.exp(torch.linspace(np.log(beta_min), np.log(beta_max), N))
+      self.discrete_betas = self.discrete_betas / N
+    else:
+      raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
+
     self.alphas = 1. - self.discrete_betas
     self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
     self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
@@ -133,13 +161,33 @@ class VPSDE(SDE):
     return 1
 
   def sde(self, x, t):
-    beta_t = self.beta_0 + t * (self.beta_1 - self.beta_0)
+    if self.sde_type == 'original' or self.sde_type == 'v1':
+      beta_t = self.beta_0 + t * (self.beta_1 - self.beta_0)
+    elif self.sde_type == 'v2':
+      beta_t = torch.pow(self.b + self.a * t, self.rho)
+    elif self.sde_type == 'v3':
+      beta_t = self.beta_0 * torch.pow(self.b, t)
+    else:
+      raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
+    
     drift = -0.5 * beta_t[:, None, None, None] * x
     diffusion = torch.sqrt(beta_t)
     return drift, diffusion
 
   def marginal_prob(self, x, t):
-    log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
+    if self.sde_type == 'original' or self.sde_type == 'v1':
+      log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
+    elif self.sde_type == 'v2':
+      num = torch.tensor(self.b**(self.rho+1), device=t.device) - torch.pow(self.b + self.a * t, self.rho+1)
+      div =  2 * self.a * (self.rho + 1)
+      log_mean_coeff = torch.div(num, div)
+    elif self.sde_type == 'v3':
+      num = torch.sub(self.beta_0, self.beta_0 * pow(self.b, t))
+      div = 2 * np.log(self.b)
+      log_mean_coeff = torch.div(num, div)
+    else:
+      raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
+    
     mean = torch.exp(log_mean_coeff[:, None, None, None]) * x
     std = torch.sqrt(1. - torch.exp(2. * log_mean_coeff))
     return mean, std
@@ -205,16 +253,24 @@ class subVPSDE(SDE):
 
 
 class VESDE(SDE):
-  def __init__(self, sigma_min=0.01, sigma_max=50, N=1000, sde_type="original"):
+  def __init__(self, sigma_min=0.01, sigma_max=50, N=1000, sde_type="original", sde_rho=10):
     """Construct a Variance Exploding SDE.
 
     Args:
       sigma_min: smallest sigma.
       sigma_max: largest sigma.
       N: number of discretization steps
+
+      sde type: "original" by default
+      v1: g(t) = constant
+      v2: g(t) = sqrt(2ct)
+      v3: g(t) = c(a+bt)^k
     """
     super().__init__(N)
     self.sde_type = sde_type
+    # rho is for v3 sde
+    self.rho = sde_rho
+
     self.sigma_min = sigma_min
     self.sigma_max = sigma_max
 
@@ -222,6 +278,13 @@ class VESDE(SDE):
       self.discrete_sigmas = torch.exp(torch.linspace(np.log(self.sigma_min), np.log(self.sigma_max), N))
     elif self.sde_type == 'v1':
       self.discrete_sigmas = torch.sqrt(torch.linspace(self.sigma_min**2, self.sigma_max**2, N))
+    elif self.sde_type == 'v2':
+      discrete_time = torch.linspace(0,1,N)
+      sqr_discrete_time = torch.square(discrete_time)
+      self.discrete_sigmas = torch.sqrt(torch.add(torch.mul(sqr_discrete_time,
+                              self.sigma_max**2-self.sigma_min**2), self.sigma_min**2))
+    elif self.sde_type == 'v3':
+      self.discrete_sigmas = torch.pow(torch.linspace(self.sigma_min**(1/self.rho),self.sigma_max**(1/self.rho),N), self.rho)
     else:
       raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
     
@@ -236,6 +299,10 @@ class VESDE(SDE):
       sigma = self.sigma_min * (self.sigma_max / self.sigma_min) ** t
     elif self.sde_type == 'v1':
       sigma = torch.sqrt(self.sigma_min**2 + (self.sigma_max**2 - self.sigma_min**2) * t)
+    elif self.sde_type == 'v2':
+      sigma = torch.sqrt(self.sigma_min**2 + (self.sigma_max**2 - self.sigma_min**2) * t**2)
+    elif self.sde_type == 'v3':
+      sigma = torch.pow(self.sigma_min**(1/self.rho) + (self.sigma_max**(1/self.rho) - self.sigma_min**(1/self.rho)) * t, self.rho)
     else:
       raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
     
@@ -250,6 +317,10 @@ class VESDE(SDE):
       std = self.sigma_min * (self.sigma_max / self.sigma_min) ** t
     elif self.sde_type == 'v1':
       std = torch.sqrt(self.sigma_min**2 + (self.sigma_max**2 - self.sigma_min**2) * t)
+    elif self.sde_type == 'v2':
+      std = torch.sqrt(self.sigma_min**2 + (self.sigma_max**2 - self.sigma_min**2) * t**2)
+    elif self.sde_type == 'v3':
+      std = torch.pow(self.sigma_min**(1/self.rho) + (self.sigma_max**(1/self.rho) - self.sigma_min**(1/self.rho)) * t, self.rho)
     else:
       raise NotImplementedError(f"SDE type {self.sde_type} unknown.")
     
@@ -269,7 +340,6 @@ class VESDE(SDE):
     timestep = (t * (self.N - 1) / self.T).long()
     sigma = self.discrete_sigmas.to(t.device)[timestep]
     adjacent_sigma = torch.where(timestep == 0, torch.zeros_like(t),
-    #                             self.discrete_sigmas[timestep - 1].to(t.device))
                                  self.discrete_sigmas.to(t.device)[timestep - 1])
     f = torch.zeros_like(x)
     G = torch.sqrt(sigma ** 2 - adjacent_sigma ** 2)

@@ -1,6 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,7 +10,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pylint: skip-file
 """Training and evaluation for score-based generative models. """
 
 import gc
@@ -22,7 +18,6 @@ import os
 import time
 
 import sys
-import psutil
 
 import numpy as np
 import tensorflow as tf
@@ -64,15 +59,10 @@ def train(config, workdir):
   writer = tensorboard.SummaryWriter(tb_dir)
 
   # Initialize model.
-  mem_usage = psutil.Process()
-  print(f"Before creating the model, memory usage is {mem_usage.memory_info().rss}")
+  logging.info(f"The number of devices is {torch.cuda.device_count()}")
 
-  print("Initialize model...")
+  logging.info("Initialize model...")
   score_model = mutils.create_model(config)
-  print(f"The model size is {sys.getsizeof(score_model)}")
-
-  something = psutil.Process()
-  print(f"After creating the model, memory usage is {mem_usage.memory_info().rss}")
 
   ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
   optimizer = losses.get_optimizer(config, score_model.parameters())
@@ -89,7 +79,7 @@ def train(config, workdir):
   initial_step = int(state['step'])
 
   # Build data iterators
-  print("Build data iterators...")
+  logging.info("Build data iterators...")
   train_ds, eval_ds, _ = datasets.get_dataset(config,
                                               uniform_dequantization=config.data.uniform_dequantization)
   train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
@@ -99,21 +89,51 @@ def train(config, workdir):
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Setup SDEs
-  print("Setup SDEs...")
+  logging.info(f"The working directory is: {workdir}")
+  logging.info(f"The SDE type is {config.training.sde.lower()} {config.model.sde_type}")
+  
   if config.training.sde.lower() == 'vpsde':
     sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales, 
-                        sde_type=config.model.sde_type)
+                        sde_type=config.model.sde_type, sde_rho=config.model.sde_rho)
     sampling_eps = 1e-3
+
+    logging.info(f'beta min for VPSDE is {config.model.beta_min}')
+    logging.info(f'beta max for VPSDE is {config.model.beta_max}')
+
+    if sde.sde_type == 'original':
+      logging.info("The vpsde has beta(t) = a+bt")
+    elif sde.sde_type == 'v1':
+      logging.info("The vpsde has beta(t) = const")
+    elif sde.sde_type == 'v2':
+      logging.info("The vpsde has beta(t) = (b+at)^rho")
+      logging.info(f"The SDE rho (if applicable) is {sde.rho}")
+    elif sde.sde_type == 'v3':
+      logging.info("The vpsde has beta(t) = ab^t")
+
   elif config.training.sde.lower() == 'subvpsde':
     sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'vesde':
     sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales, 
-                        sde_type=config.model.sde_type)
+                        sde_type=config.model.sde_type, sde_rho=config.model.sde_rho)
     sampling_eps = 1e-5
+
+    logging.info(f'sigma min for VESDE is {config.model.sigma_min}')
+    logging.info(f'sigma max for VESDE is {config.model.sigma_max}')
+
+    if sde.sde_type == 'original':
+      logging.info("The vesde has g(t) = ab^t")
+    elif sde.sde_type == 'v1':
+      logging.info("The vesde has g(t) = const")
+    elif sde.sde_type == 'v2':
+      logging.info("The vesde has g(t) = sqrt(2ct)")
+    elif sde.sde_type == 'v3':
+      logging.info("The vesde has g(t) = c(a+bt)^(rho-0.5)")
+      logging.info(f"The SDE rho (if applicable) is {sde.rho}")
+
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
-  print(f"The SDE type is {config.model.sde_type}")
+  
 
   # Build one-step training and evaluation functions
   optimize_fn = losses.optimization_manager(config)
@@ -145,6 +165,7 @@ def train(config, workdir):
     batch = scaler(batch)
     # Execute one training step
     loss = train_step_fn(state, batch)
+
     if step % config.training.log_freq == 0:
       logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
       writer.add_scalar("training_loss", loss, step)
@@ -217,8 +238,7 @@ def evaluate(config,
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Initialize model
-  mem_usage = psutil.Process()
-  print(f"Before initializing model, memory usage is {mem_usage.memory_info().rss}")
+  logging.info(f"The number of devices is {torch.cuda.device_count()}")
 
   score_model = mutils.create_model(config)
   optimizer = losses.get_optimizer(config, score_model.parameters())
@@ -228,20 +248,50 @@ def evaluate(config,
   checkpoint_dir = os.path.join(workdir, "checkpoints")
 
   # Setup SDEs
+  logging.info(f"The working directory is: {workdir}")
+  logging.info(f"The SDE type is {config.training.sde.lower()} {config.model.sde_type}")
+
   if config.training.sde.lower() == 'vpsde':
     sde = sde_lib.VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales, 
-                        sde_type=config.model.sde_type)
+                        sde_type=config.model.sde_type, sde_rho=config.model.sde_rho)
     sampling_eps = 1e-3
+
+    logging.info(f'beta min for VPSDE is {config.model.beta_min}')
+    logging.info(f'beta max for VPSDE is {config.model.beta_max}')
+
+    if sde.sde_type == 'original':
+      logging.info("The vpsde has beta(t) = a+bt")
+    elif sde.sde_type == 'v1':
+      logging.info("The vpsde has beta(t) = const")
+    elif sde.sde_type == 'v2':
+      logging.info("The vpsde has beta(t) = (b+at)^rho")
+      logging.info(f"The SDE rho (if applicable) is {sde.rho}")
+    elif sde.sde_type == 'v3':
+      logging.info("The vpsde has beta(t) = ab^t")
+
   elif config.training.sde.lower() == 'subvpsde':
     sde = sde_lib.subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
     sampling_eps = 1e-3
   elif config.training.sde.lower() == 'vesde':
     sde = sde_lib.VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales, 
-                        sde_type=config.model.sde_type)
+                        sde_type=config.model.sde_type, sde_rho=config.model.sde_rho)
     sampling_eps = 1e-5
+
+    logging.info(f'sigma min for VESDE is {config.model.sigma_min}')
+    logging.info(f'sigma max for VESDE is {config.model.sigma_max}')
+    
+    if sde.sde_type == 'original':
+      logging.info("The vesde has g(t) = ab^t")
+    elif sde.sde_type == 'v1':
+      logging.info("The vesde has g(t) = const")
+    elif sde.sde_type == 'v2':
+      logging.info("The vesde has g(t) = sqrt(2ct)")
+    elif sde.sde_type == 'v3':
+      logging.info("The vesde has g(t) = c(a+bt)^(rho-0.5)")
+      logging.info(f"The SDE rho (if applicable) is {sde.rho}")
+      
   else:
     raise NotImplementedError(f"SDE {config.training.sde} unknown.")
-  print(f"The SDE type is {config.model.sde_type}")
 
   # Create the one-step evaluation function when loss computation is enabled
   if config.eval.enable_loss:
@@ -357,7 +407,6 @@ def evaluate(config,
       num_sampling_rounds = config.eval.num_samples // config.eval.batch_size + 1
       for r in range(num_sampling_rounds):
         logging.info("sampling -- ckpt: %d, round: %d" % (ckpt, r))
-        print(f"The current memory usage is {mem_usage.memory_info().rss}")
 
         # Directory to save samples. Different for each host to avoid writing conflicts
         this_sample_dir = os.path.join(

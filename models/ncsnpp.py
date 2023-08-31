@@ -231,8 +231,10 @@ class NCSNpp(nn.Module):
 
   def forward(self, x, time_cond):
     # timestep/noise_level embedding; only for continuous training
+
     modules = self.all_modules
     m_idx = 0
+    
     if self.embedding_type == 'fourier':
       # Gaussian Fourier features embeddings.
       used_sigmas = time_cond
@@ -247,6 +249,7 @@ class NCSNpp(nn.Module):
 
     else:
       raise ValueError(f'embedding type {self.embedding_type} unknown.')
+
 
     if self.conditional:
       temb = modules[m_idx](temb)
@@ -267,6 +270,7 @@ class NCSNpp(nn.Module):
 
     hs = [modules[m_idx](x)]
     m_idx += 1
+    
     for i_level in range(self.num_resolutions):
       # Residual blocks for this resolution
       for i_block in range(self.num_res_blocks):
@@ -354,7 +358,7 @@ class NCSNpp(nn.Module):
             h = pyramid
           else:
             raise ValueError(f'{self.progressive} is not a valid name')
-
+      
       if i_level != 0:
         if self.resblock_type == 'ddpm':
           h = modules[m_idx](h)
@@ -364,7 +368,7 @@ class NCSNpp(nn.Module):
           m_idx += 1
 
     assert not hs
-
+    
     if self.progressive == 'output_skip':
       h = pyramid
     else:

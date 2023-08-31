@@ -1,6 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,10 +10,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Training NCSN++ on CIFAR-10 with VE SDE."""
+"""Training deep NCSN++ on CIFAR-10 with VE SDE."""
 
-from configs.default_cifar10_configs import get_default_configs
+from configs.default_cifar10_configs_deep import get_default_configs
 
 
 def get_config():
@@ -25,7 +21,6 @@ def get_config():
   training = config.training
   training.sde = 'vesde'
   training.continuous = True
-  training.n_iters = 950001
 
   # sampling
   sampling = config.sampling
@@ -41,7 +36,7 @@ def get_config():
   model.ema_rate = 0.999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
-  model.nf = 128
+  model.nf = 32
   model.ch_mult = (1, 2, 2, 2)
   model.num_res_blocks = 8
   model.attn_resolutions = (16,)

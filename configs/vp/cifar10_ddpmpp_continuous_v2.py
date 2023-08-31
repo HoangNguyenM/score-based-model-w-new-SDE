@@ -1,6 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,50 +10,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Training NCSN++ on CIFAR-10 with VE SDE."""
+"""Training DDPM++ on CIFAR-10 with continuous betas."""
 
-from configs.default_cifar10_configs_Hoang_small import get_default_configs
+### VP VERSION 2: beta = (b+at)^rho ###
+
+from configs.default_cifar10_configs import get_default_configs
 
 
 def get_config():
   config = get_default_configs()
   # training
   training = config.training
-  training.sde = 'vesde'
+  training.sde = 'vpsde'
   training.continuous = True
-  #training.n_iters = 950001
+  training.reduce_mean = True
 
   # sampling
   sampling = config.sampling
   sampling.method = 'pc'
-  sampling.predictor = 'reverse_diffusion'
-  sampling.corrector = 'langevin'
+  sampling.predictor = 'euler_maruyama'
+  sampling.corrector = 'none'
+
+  # data
+  data = config.data
+  data.centered = True
 
   # model
   model = config.model
+  model.sde_type = 'v2'
+  model.sde_rho = 2
+
   model.name = 'ncsnpp'
-  model.fourier_scale = 16
-  model.scale_by_sigma = True
-  model.ema_rate = 0.999
+  model.scale_by_sigma = False
+  model.ema_rate = 0.9999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
-  #model.nf = 128
   model.nf = 32
   model.ch_mult = (1, 2, 2, 2)
-  model.num_res_blocks = 8
+  model.num_res_blocks = 4
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
-  model.fir = True
+  model.fir = False
   model.fir_kernel = [1, 3, 3, 1]
   model.skip_rescale = True
   model.resblock_type = 'biggan'
   model.progressive = 'none'
-  model.progressive_input = 'residual'
+  model.progressive_input = 'none'
   model.progressive_combine = 'sum'
   model.attention_type = 'ddpm'
-  model.init_scale = 0.0
+  model.init_scale = 0.
+  model.embedding_type = 'positional'
+  model.fourier_scale = 16
   model.conv_size = 3
 
   return config

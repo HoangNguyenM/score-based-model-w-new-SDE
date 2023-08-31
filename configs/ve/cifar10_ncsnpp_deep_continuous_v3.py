@@ -1,6 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,10 +10,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Training NCSN++ on CIFAR-10 with SMLD."""
+"""Training deep NCSN++ on CIFAR-10 with VE SDE."""
 
-from configs.default_cifar10_configs import get_default_configs
+### VE VERSION 3: g(t) = c(a+bt)^k ###
+
+from configs.default_cifar10_configs_deep import get_default_configs
 
 
 def get_config():
@@ -24,7 +22,7 @@ def get_config():
   # training
   training = config.training
   training.sde = 'vesde'
-  training.continuous = False
+  training.continuous = True
 
   # sampling
   sampling = config.sampling
@@ -34,14 +32,18 @@ def get_config():
 
   # model
   model = config.model
+  model.sde_type = 'v3'
+  model.sde_rho = 7
+
   model.name = 'ncsnpp'
+  model.fourier_scale = 16
   model.scale_by_sigma = True
   model.ema_rate = 0.999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
-  model.nf = 128
+  model.nf = 32
   model.ch_mult = (1, 2, 2, 2)
-  model.num_res_blocks = 4
+  model.num_res_blocks = 8
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
@@ -54,7 +56,6 @@ def get_config():
   model.progressive_combine = 'sum'
   model.attention_type = 'ddpm'
   model.init_scale = 0.0
-  model.embedding_type = 'positional'
   model.conv_size = 3
 
   return config

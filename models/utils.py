@@ -19,7 +19,7 @@
 import torch
 import sde_lib
 import numpy as np
-
+import logging
 
 _MODELS = {}
 
@@ -170,6 +170,7 @@ def get_score_fn(sde, model, train=False, continuous=False):
         labels = torch.round(labels).long()
 
       score = model_fn(x, labels)
+      
       return score
 
   else:
