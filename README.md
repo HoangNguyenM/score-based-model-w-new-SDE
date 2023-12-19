@@ -31,6 +31,7 @@ Our experiments ran in Python 3.9 using PyTorch 2.0.1 and CUDA 11.3. Please use 
 pip install --upgrade pip
 pip install -r requirements.txt -f https://download.pytorch.org/whl/torch_stable.html -f https://storage.googleapis.com/jax-releases/jax_releases.html
 '''
+
 ## References
 
 If you find the code useful for your research, please consider citing our paper:
